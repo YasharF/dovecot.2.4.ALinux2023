@@ -1,0 +1,119 @@
+name: Verify
+# Installs the RPMs a Build run produced and does basic checks to verify they work
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build run ID whose RPMs to test'
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    # Do not test the artifacts of a build that failed.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: build
+        run: echo "run_id=${{ github.event.workflow_run.id || inputs.run_id }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpms-${{ matrix.arch }}
+          path: rpms
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install the RPMs and start dovecot
+        run: |
+          docker run -d --name dovecot --network host \
+            -v "$PWD:/w" -w /w \
+            public.ecr.aws/amazonlinux/amazonlinux:2023 \
+            ./verify/run.sh /w/rpms
+          for port in 993 24; do
+            for i in $(seq 1 60); do
+              (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && break
+              if [ "$i" = 60 ]; then
+                docker logs dovecot
+                echo "dovecot never listened on $port"
+                exit 1
+              fi
+              sleep 2
+            done
+          done
+          docker logs dovecot
+
+      - name: imaptest over TLS
+        run: |
+          curl -fsSL -o dovecot-crlf https://dovecot.org/tmp/dovecot-crlf
+          docker run --rm --network host -v "$PWD/dovecot-crlf:/mbox:ro" \
+            dovecot/imaptest \
+            host=127.0.0.1 port=993 ssl=any-cert \
+            user=test@example.com pass=testpass \
+            mbox=/mbox \
+            clients=4 msgs=50 secs=90 \
+            error_quit disconnect_quit
+
+      # user= is required even though the profile names the user itself:
+      # imaptest checks for it before it reads the profile, then ignores it.
+      - name: imaptest LMTP delivery (profile mode)
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/dovecot-crlf:/mbox:ro" \
+            -v "$PWD/verify/imaptest-profile.conf:/profile.conf:ro" \
+            dovecot/imaptest \
+            host=127.0.0.1 port=993 ssl=any-cert \
+            user=test@example.com pass=testpass \
+            mbox=/mbox \
+            profile=/profile.conf \
+            secs=30 \
+            error_quit disconnect_quit
+          # Sieve ran inside the delivery path, not just standalone.
+          docker exec dovecot doveadm search -u test@example.com \
+            mailbox LmtpSieved all | grep -q . \
+            || { echo "LMTP delivered but the sieve_before script did not run"; exit 1; }
+
+      - name: Sieve routing (sieve-test)
+        run: |
+          docker exec dovecot sieve-test -e -u test@example.com \
+            -c /etc/dovecot/dovecot.conf \
+            /w/verify/sieve-test.sieve /w/verify/sieve-test-mail.eml
+          found=$(docker exec dovecot doveadm search -u test@example.com \
+            mailbox Sieved subject SIEVE-VERIFY)
+          [ -n "$found" ] || { echo "sieve-test ran but the message is not in Sieved"; exit 1; }
+
+      # SNI: the servername picks the certificate. Both are self-signed by
+      # run.sh, so this needs nothing provisioned.
+      - name: TLS SNI certificate selection
+        run: |
+          subject_for() {
+            openssl s_client -connect 127.0.0.1:993 ${1:+-servername "$1"} \
+              </dev/null 2>/dev/null | openssl x509 -noout -subject
+          }
+          default=$(subject_for "")
+          sni=$(subject_for imap-sni.example.com)
+          echo "default: $default"
+          echo "sni:     $sni"
+          case $default in *localhost*) ;; *) echo "default cert is not CN=localhost"; exit 1 ;; esac
+          case $sni in *imap-sni.example.com*) ;; *) echo "SNI did not select the local_name cert"; exit 1 ;; esac
+
+      - name: dovecot log
+        if: always()
+        run: docker logs dovecot

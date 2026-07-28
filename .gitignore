@@ -1,0 +1,5 @@
+# Build output: RPMs, source RPMs, the rpmbuild tree, manifests and logs.
+/out/
+/assets/
+__pycache__/
+*.pyc

@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Dovecot version, e.g. 2.4.4'
+        required: true
+      release:
+        description: 'Upstream SRPM release, e.g. 5'
+        required: true
+        default: '5'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          docker run --rm -v "$PWD:/w" -w /w \
+            public.ecr.aws/amazonlinux/amazonlinux:2023 \
+            ./build/build.sh '${{ inputs.version }}' '${{ inputs.release }}'
+      # make check writes the failing subtest only to test-suite.log.
+      - if: failure()
+        run: find out/work/rpmbuild/BUILD -name test-suite.log -print -exec cat {} + || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpms-${{ matrix.arch }}
+          path: out/RPMS/
