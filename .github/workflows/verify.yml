@@ -128,6 +128,20 @@ jobs:
           echo "$resp" | grep -q 'verify-managesieve' \
             || { echo "PUTSCRIPT/LISTSCRIPTS did not round-trip over ManageSieve"; exit 1; }
 
+      # A stalled imaptest run reports nothing server-side: dovecot logs are
+      # silent because nothing errors, it just stops making progress. wchan
+      # says whether the processes are blocked in the kernel (a lock) or
+      # running, which is the difference between a deadlock and slowness.
+      - name: Diagnose a stall
+        if: failure()
+        run: |
+          echo "=== dovecot processes: state, kernel wait channel, elapsed ==="
+          docker exec dovecot ps -eo pid,stat,wchan:24,etime,args || true
+          echo "=== lock files under the mail store and fts index ==="
+          docker exec dovecot find /var/vmail -name '*lock*' -printf '%p %s %TT\n' || true
+          echo "=== fts index tree ==="
+          docker exec dovecot find /var/vmail -path '*fts*' -maxdepth 6 | head -40 || true
+
       - name: dovecot log
         if: always()
         run: docker logs dovecot
