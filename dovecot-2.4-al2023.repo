@@ -1,0 +1,6 @@
+[dovecot-2.4-al2023]
+name=Dovecot 2.4 for Amazon Linux 2023 (unofficial rebuild)
+baseurl=https://yasharf.github.io/dovecot.2.4.ALinux2023/al2023/$basearch/
+enabled=1
+gpgcheck=0
+metadata_expire=6h

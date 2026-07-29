@@ -105,7 +105,8 @@ Not covered: the packaged systemd unit, since verification runs `dovecot -F` dir
 ### 4.4 Distribution
 
 - **R18** — Both architectures' RPMs come from a single CI run and are downloadable from it.
-- **R19** — **Not yet met.** Today the RPMs are workflow artifacts, which expire and are awkward to consume. A durable, versioned publication — a GitHub Release per build, tagged with the Dovecot version and upstream SRPM release, carrying every RPM for both architectures — is the intended end state. Until that exists, this project produces builds rather than releases.
+- **R19** — The RPMs are published as a `dnf` repository carrying both architectures, so a host installs and updates them the way it installs anything else rather than downloading expiring workflow artifacts.
+- **R20** — The repository keeps every build it has ever published. A host that finds a new build worse than the one it replaced can go back to the earlier one by name, rather than waiting on a fix. Nothing published before the repository existed is carried into it: it starts from the first published build.
 
 ## 5. Design
 
@@ -142,10 +143,12 @@ Two things the environment supplies that the spec assumes:
 
 ### 5.3 Automation
 
-Two workflows:
+Three workflows:
 
 - **Build** — manually triggered with a Dovecot version and upstream SRPM release. Runs `build/build.sh` in the AL2023 container on `ubuntu-24.04` and `ubuntu-24.04-arm`, and uploads each architecture's RPMs as an artifact. On `make check` failure it prints every `test-suite.log`, which is the only place automake names the failing subtest.
 - **Verify** — triggered when Build completes, or manually against any past Build's run id. Installs that run's RPMs on a clean AL2023 container, starts Dovecot, points the `dovecot/imaptest` container at it over TLS twice — once for the IMAP stress run, once in profile mode for LMTP — and runs `sieve-test`, `doveadm` and `openssl s_client` against the running install.
+
+- **Publish** — manually triggered against a Build's run id. Adds that run's RPMs to the `gh-pages` branch and regenerates the repository metadata. Manual rather than chained off Verify, because publishing is a decision: a build that passes is not automatically a build worth putting in front of hosts.
 
 They are separate so verification can be re-run without repeating a ~25-minute rebuild.
 
@@ -153,17 +156,17 @@ The runners must be a public repository's 4 vCPU ones; see §3 on `test-http-pay
 
 ### 5.4 Publishing
 
-Not built yet. Today the output is a workflow artifact per architecture.
+A `dnf` repository, `createrepo_c` over the same artifacts the Build produced, with no rebuild. It is served by GitHub Pages from the `gh-pages` branch, at `https://yasharf.github.io/dovecot.2.4.ALinux2023/al2023/$basearch/`, with `dovecot-2.4-al2023.repo` at the site root for consumers to drop into `/etc/yum.repos.d`. No domain and no bucket: the hosting is the repository this is already in.
 
-The intended end state is a GitHub Release per build carrying every RPM for both architectures. No `dnf` repository, no hosting to run: for a project with this lifetime the metadata, the domain and the bucket cost more than they return.
+That branch is the store as well as the site. Publishing clones it, adds the new RPMs beside the ones already there, regenerates the metadata with `createrepo_c --update`, and pushes — so history accumulates as a property of how it is published, not as a separate retention mechanism to maintain (R20). The cost is that the RPMs live in git history: ~48 MiB per build across both architectures, against the 1 GB Pages advises staying under.
 
-Consumers download what they want and install it however they install RPMs. The one thing worth documenting is that without a `dnf` repository behind them, the dependencies *between* these packages can only be satisfied from the files named in the same transaction — and that `dnf upgrade` will not find a newer build on its own.
+Files are added, never replaced: a filename already published stays as it is. Two builds of the same upstream release produce the same filename (§5.5), and overwriting one would change an artifact under hosts that already installed it.
 
-If this ever needs to be a real `dnf` repository, the RPMs are the same artifacts: `createrepo_c` over them plus somewhere to serve them, with no rebuild.
+The packages are unsigned and the repository sets `gpgcheck=0`. Signing is a key to hold and rotate, and this project's lifetime does not justify one; if that changes, it is `rpm --addsign` over the packages plus a detached signature on `repomd.xml`, and no change to how any of this is published.
 
 ### 5.5 Versioning
 
-The package `Epoch`, `Version` and `Release` are the Dovecot project's, unchanged — not even a distribution tag, which would be a spec change and would break the sieve spec's hardcoded EVR pins on core. Two builds of the same upstream release are therefore indistinguishable by EVR, which is correct: they are the same packages. Whatever identifies a build has to live outside the RPMs — today the workflow run, later the release tag.
+The package `Epoch`, `Version` and `Release` are the Dovecot project's, unchanged — not even a distribution tag, which would be a spec change and would break the sieve spec's hardcoded EVR pins on core. Two builds of the same upstream release are therefore indistinguishable by EVR, which is correct: they are the same packages. Whatever identifies a build has to live outside the RPMs — the Build run id, which is what the Publish workflow is given and what its commit on `gh-pages` records.
 
 ## 6. Verification plan
 
@@ -189,8 +192,8 @@ Known gap: imaptest can prove a false negative from FTS but not a false positive
 1. **Feasibility** — done.
 2. **Rebuild** — done. Both architectures, `make check` passing, 34 RPMs each.
 3. **Verification** — done. Install, concurrent imaptest over TLS, single-client imaptest SEARCH through Xapian, imaptest LMTP profile mode with Sieve on the delivery path, sieve-test, SNI certificate selection and ManageSieve all passing on both architectures.
-4. **Automation** — done. Build and Verify workflows.
-5. **Publication** — not started. See R19.
+4. **Automation** — done. Build, Verify and Publish workflows.
+5. **Publication** — built, not yet run. The Publish workflow and the `dnf` repository it writes exist; GitHub Pages has to be pointed at the `gh-pages` branch, and no build has been published yet, so the repository is empty.
 6. **Dovecot release tracking** — not started. No scheduled check for new upstream releases, and no written procedure for taking one from rebuild to publication.
 
 ## 8. Consumer note

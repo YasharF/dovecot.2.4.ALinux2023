@@ -32,7 +32,18 @@ The Dovecot sources are not touched, and the sieve spec is unmodified.
 
 ## Install
 
-`dovecot-flatcurve` needs Xapian, which is in the Amazon SPAL repository:
-`dnf install spal-release`. There is no `dnf` repository behind these RPMs, so
-name every package you want in one `dnf install` — `dnf` can only resolve the
-dependencies between them from the files you give it.
+These are published as a `dnf` repository, for `x86_64` and `aarch64`. `dovecot-flatcurve` needs Xapian, which is in the Amazon SPAL repository, so enable that too:
+
+```sh
+dnf install spal-release
+curl -fsSLo /etc/yum.repos.d/dovecot-2.4-al2023.repo \
+  https://yasharf.github.io/dovecot.2.4.ALinux2023/dovecot-2.4-al2023.repo
+dnf install dovecot dovecot-imapd dovecot-lmtpd dovecot-sieve \
+  dovecot-managesieved dovecot-flatcurve
+```
+
+The packages are unsigned, so the repository sets `gpgcheck=0`.
+
+A host carrying the distribution's `dovecot` and `dovecot-pigeonhole` removes them first — `dovecot-sieve` conflicts with `dovecot-pigeonhole`, and that transaction is refused otherwise.
+
+Every published build stays published. `dnf list --showduplicates dovecot` shows what is there, and an earlier one can be installed by name — `dnf install dovecot-2:2.4.4-5` — if a newer build turns out to be worse.
