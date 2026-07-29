@@ -63,25 +63,41 @@ jobs:
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
 
-      # -n so an already-published filename is never replaced. Two builds of the
-      # same upstream release carry the same EVR and therefore the same filename
+      # An already-published filename is never replaced. Two builds of the same
+      # upstream release carry the same EVR and therefore the same filename
       # (§5.5); the copy that is already public is the one that stays, because
       # replacing it would change an artifact under hosts that already have it.
       - name: Add the new RPMs
+        id: add
         run: |
+          new=0
           for arch in x86_64 aarch64; do
             mkdir -p "site/al2023/$arch"
-            cp -nv "incoming/$arch"/*.rpm "site/al2023/$arch/"
+            for f in "incoming/$arch"/*.rpm; do
+              dest="site/al2023/$arch/$(basename "$f")"
+              if [ -e "$dest" ]; then
+                echo "already published: $(basename "$f")"
+              else
+                cp "$f" "$dest"
+                new=$((new + 1))
+              fi
+            done
           done
           cp src/dovecot-2.4-al2023.repo site/
           # Pages runs Jekyll over a branch-served site otherwise, which has no
           # business touching a package tree.
           touch site/.nojekyll
+          echo "added $new package(s)"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
 
       # createrepo_c out of AL2023 itself, the distribution these packages
       # install on. --update reuses the metadata of packages that were already
       # there, so a publish costs only the packages it adds.
+      # Only when packages were actually added. createrepo_c stamps its output,
+      # so running it regardless would rewrite every metadata file on every run
+      # and commit that churn even when the repository's contents are identical.
       - name: Rebuild the repository metadata
+        if: steps.add.outputs.new != '0'
         run: |
           docker run --rm -v "$PWD/site:/site" -w /site \
             public.ecr.aws/amazonlinux/amazonlinux:2023 \
