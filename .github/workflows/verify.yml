@@ -47,7 +47,7 @@ jobs:
             -v "$PWD:/w" -w /w \
             public.ecr.aws/amazonlinux/amazonlinux:2023 \
             ./verify/run.sh /w/rpms
-          for port in 993 24; do
+          for port in 993 24 4190; do
             for i in $(seq 1 60); do
               (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && break
               if [ "$i" = 60 ]; then
@@ -62,8 +62,7 @@ jobs:
 
       # search=30 is what makes this exercise Xapian at all: imaptest's SEARCH
       # state has a default probability of 0, so without it not one SEARCH is
-      # ever sent. With it, imaptest issues BODY and TEXT searches built from
-      # the body words it tracked and checks the results it gets back.
+      # ever sent.
       - name: imaptest over TLS
         run: |
           curl -fsSL -o dovecot-crlf https://dovecot.org/tmp/dovecot-crlf
@@ -118,6 +117,16 @@ jobs:
           echo "sni:     $sni"
           case $default in *localhost*) ;; *) echo "default cert is not CN=localhost"; exit 1 ;; esac
           case $sni in *imap-sni.example.com*) ;; *) echo "SNI did not select the local_name cert"; exit 1 ;; esac
+
+      # ManageSieve, over STARTTLS because ssl = required.
+      - name: ManageSieve script upload
+        run: |
+          auth=$(printf '\0test@example.com\0testpass' | base64 -w0)
+          resp=$(printf 'AUTHENTICATE "PLAIN" "%s"\r\nPUTSCRIPT "verify-managesieve" {5+}\r\nkeep;\r\nLISTSCRIPTS\r\nLOGOUT\r\n' "$auth" \
+            | openssl s_client -quiet -connect 127.0.0.1:4190 -starttls sieve 2>/dev/null)
+          echo "$resp"
+          echo "$resp" | grep -q 'verify-managesieve' \
+            || { echo "PUTSCRIPT/LISTSCRIPTS did not round-trip over ManageSieve"; exit 1; }
 
       - name: dovecot log
         if: always()

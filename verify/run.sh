@@ -3,8 +3,9 @@
 #
 #   verify/run.sh /path/to/rpms
 #
-# Run on AL2023 as root (a container is fine). Listens on 127.0.0.1:143, :993
-# and :24 (LMTP) as test@example.com / testpass. Runs until killed.
+# Run on AL2023 as root (a container is fine). Listens on 127.0.0.1:143, :993,
+# :24 (LMTP) and :4190 (ManageSieve) as test@example.com / testpass. Runs until
+# killed.
 #
 # This exists to put the built packages in front of a real IMAP client. make
 # check tests Dovecot's own code; it never opens a TLS session, indexes

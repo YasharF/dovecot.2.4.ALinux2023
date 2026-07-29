@@ -94,12 +94,14 @@ This project is temporary. It exists because there are currently no official AL2
 - **R15** — LMTP delivery is exercised by imaptest's profile mode, the one mode in which it speaks LMTP. `verify/imaptest-profile.conf` describes one user and one IDLEing IMAP client; imaptest delivers to that user's INBOX over LMTP and drives the IMAP session reacting to the delivery. The config is the whole of this project's contribution — imaptest does the driving.
 - **R16** — Pigeonhole's `fileinto` action is exercised against a real mailbox by [sieve-test](https://doc.dovecot.org/main/core/man/sieve-test.1.html), the Pigeonhole project's own script tester: it runs `verify/sieve-test.sieve` against `verify/sieve-test-mail.eml` with `-e` (actually execute, not just report), and `doveadm search` confirms the message landed in the non-`INBOX` mailbox the rule names. imaptest never runs a Sieve script in any mode — its profile mode reaches a non-INBOX folder through plus-addressing, not Sieve — so this is the only thing that covers the action.
 
-Not covered: ManageSieve is built and installed but never exercised — R16 runs the Sieve script directly rather than uploading it over ManageSieve. Nor is the packaged systemd unit, since verification runs `dovecot -F` directly.
+- **R17** — ManageSieve is exercised as a protocol, not just started: `openssl s_client -starttls sieve` opens a real STARTTLS session on 4190, authenticates as the test user, uploads a script with `PUTSCRIPT` and lists it back with `LISTSCRIPTS`. `ssl = required` means the session has to negotiate STARTTLS before it can authenticate at all.
+
+Not covered: the packaged systemd unit, since verification runs `dovecot -F` directly.
 
 ### 4.4 Distribution
 
-- **R17** — Both architectures' RPMs come from a single CI run and are downloadable from it.
-- **R18** — **Not yet met.** Today the RPMs are workflow artifacts, which expire and are awkward to consume. A durable, versioned publication — a GitHub Release per build, tagged with the Dovecot version and upstream SRPM release, carrying every RPM for both architectures — is the intended end state. Until that exists, this project produces builds rather than releases.
+- **R18** — Both architectures' RPMs come from a single CI run and are downloadable from it.
+- **R19** — **Not yet met.** Today the RPMs are workflow artifacts, which expire and are awkward to consume. A durable, versioned publication — a GitHub Release per build, tagged with the Dovecot version and upstream SRPM release, carrying every RPM for both architectures — is the intended end state. Until that exists, this project produces builds rather than releases.
 
 ## 5. Design
 
@@ -173,6 +175,7 @@ On a clean AL2023 system, per architecture, from the built RPMs:
 5. imaptest in profile mode delivers to the test user's INBOX over LMTP and drives the IMAP session that reacts to each delivery. A global `sieve_before` script files a `:copy` of every delivery into a second mailbox, so `doveadm search` finding it there proves Sieve ran inside the delivery path rather than only under `sieve-test`.
 6. `sieve-test -e` compiles and actually executes a `fileinto` rule against the test user's real mailbox; `doveadm search` confirms the message landed there rather than in `INBOX`.
 7. `openssl s_client`, with and without `-servername`, gets back the two different certificates `local_name` selects between.
+8. `openssl s_client -starttls sieve` authenticates over ManageSieve, uploads a script and lists it back.
 
 Known gap: imaptest can prove a false negative from FTS but not a false positive — it does not index the full message text itself, so a backend returning *extra* matches would go unnoticed. The other direction is covered: with `fts_search_read_fallback = no` a failed lookup is an error rather than a silent non-indexed search, so a broken Xapian fails the run instead of quietly returning the right answer.
 
@@ -182,7 +185,7 @@ Known gap: imaptest can prove a false negative from FTS but not a false positive
 2. **Rebuild** — done. Both architectures, `make check` passing, 34 RPMs each.
 3. **Verification** — done. Install, imaptest over TLS, imaptest LMTP profile mode with Sieve on the delivery path, sieve-test, and SNI certificate selection all passing on both architectures.
 4. **Automation** — done. Build and Verify workflows.
-5. **Publication** — not started. See R18.
+5. **Publication** — not started. See R19.
 6. **Dovecot release tracking** — not started. No scheduled check for new upstream releases, and no written procedure for taking one from rebuild to publication.
 
 ## 8. Consumer note
