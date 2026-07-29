@@ -21,7 +21,10 @@ RPMS=${1:?usage: run.sh <directory of RPMs>}
 
 # dovecot-flatcurve needs Xapian, which AL2023 carries in SPAL.
 dnf -y install spal-release
-dnf -y install openssl shadow-utils
+# procps-ng and findutils are not in the base image and are not Dovecot's
+# business; they are here so the workflow can inspect process state and the
+# mail store when a step stalls.
+dnf -y install openssl shadow-utils procps-ng findutils
 # Everything, debuginfo included: it costs little and helps if dovecot crashes.
 dnf -y install "$RPMS"/*.rpm
 
