@@ -182,14 +182,22 @@ jobs:
         if: always()
         run: |
           docker exec -i dovecot bash -s <<'EOF'
-          for f in /usr/sbin/dovecot /usr/libexec/dovecot/imap \
-                   /usr/lib64/dovecot/*flatcurve*.so; do
-            [ -e "$f" ] && ldd "$f"
-          done 2>/dev/null \
-            | grep -o '/[^ ]*\.so[^ ]*' | sort -u \
+          # Every daemon and every module under %{_libdir}/dovecot, not just the
+          # ones linked into the main binary. OpenSSL in particular is reached
+          # only through a dlopened iostream module, so a plain ldd of
+          # /usr/sbin/dovecot does not show the largest version delta of the lot.
+          {
+            for f in /usr/sbin/dovecot /usr/libexec/dovecot/*; do
+              [ -f "$f" ] && [ -x "$f" ] && ldd "$f"
+            done
+            find /usr/lib64/dovecot -name '*.so*' -type f -exec ldd {} +
+          } 2>/dev/null \
+            | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p' \
+            | grep -v '^/usr/lib/debug' | sort -u \
             | while read -r lib; do
                 pkg=$(rpm -qf --qf '%{NAME}-%{VERSION}-%{RELEASE}' "$lib" 2>/dev/null) || pkg='(not owned)'
-                printf '%-32s %s\n' "$(basename "$lib")" "$pkg"
+                case $pkg in dovecot-*|dovecot) continue ;; esac
+                printf '%-34s %s\n' "$(basename "$lib")" "$pkg"
               done | sort -u
           EOF
 
