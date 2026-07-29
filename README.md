@@ -46,4 +46,6 @@ The packages are unsigned, so the repository sets `gpgcheck=0`.
 
 A host carrying the distribution's `dovecot` and `dovecot-pigeonhole` removes them first — `dovecot-sieve` conflicts with `dovecot-pigeonhole`, and that transaction is refused otherwise.
 
+New upstream releases arrive on their own: a scheduled job notices one, rebuilds it, verifies it and publishes it, so `dnf upgrade` picks it up with nothing to do here. A release that fails to build or verify is not published.
+
 Every published build stays published. `dnf list --showduplicates dovecot` shows what is there, and an earlier one can be installed by name — `dnf install dovecot-2:2.4.4-5` — if a newer build turns out to be worse.

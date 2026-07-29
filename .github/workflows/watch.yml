@@ -1,0 +1,99 @@
+name: Watch
+# Checks the Dovecot project's EL9 source RPMs for a release this repository has
+# not published yet, and starts a Build when it finds one. Build chains into
+# Verify and Verify into Publish, so an upstream release reaches the dnf
+# repository, and from there a consumer's `dnf upgrade`, with nobody touching it.
+#
+# `ce-2.4-latest` carries only the current release, so "new" means "not in the
+# published repository" rather than "newer than the last one seen". There is no
+# state to keep and no cursor to get wrong: the published repository is the
+# record of what has been built, and a re-run of this workflow cannot publish
+# anything twice.
+
+on:
+  schedule:
+    # Daily. Dovecot releases a few times a year, so this is about bounding how
+    # long a release sits unnoticed, not about catching it quickly.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    steps:
+      # A Build takes ~25 minutes and Verify another few, so a daily schedule
+      # cannot collide with itself. A manual run during a build can, and would
+      # start a second build of the same release.
+      - name: Skip if a Build is already running
+        id: inflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=build.yml \
+                --status=in_progress --json databaseId --jq 'length')
+          q=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=build.yml \
+                --status=queued --json databaseId --jq 'length')
+          if [ "$((n + q))" -gt 0 ]; then
+            echo "a Build is already in flight; nothing to do"
+            echo "busy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "busy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Newest upstream source RPM
+        id: upstream
+        if: steps.inflight.outputs.busy == 'false'
+        run: |
+          set -euo pipefail
+          base=https://repo.dovecot.org/ce-2.4-latest/rhel/9/SRPMS
+          # The digit after `dovecot-` is what keeps dovecot-sieve out of this.
+          nvr=$(curl -fsSL "$base/" \
+            | sed -n 's/.*href="dovecot-\([0-9][^"]*\)\.src\.rpm".*/\1/p' \
+            | sort -V | tail -1)
+          [ -n "$nvr" ] || { echo "no dovecot source RPM at $base"; exit 1; }
+          v=${nvr%-*}
+          r=${nvr##*-}
+          # build.sh builds core and sieve from one version-release, so a release
+          # is only buildable once both source RPMs are up. They do not always
+          # appear together; when they do not, the next run picks it up.
+          curl -fsSI "$base/dovecot-sieve-$v-$r.src.rpm" >/dev/null 2>&1 || {
+            echo "core is at $v-$r but dovecot-sieve-$v-$r.src.rpm is not published yet"
+            exit 1
+          }
+          echo "upstream release: $v-$r"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "release=$r" >> "$GITHUB_OUTPUT"
+
+      # The gh-pages branch rather than the Pages URL: the branch is what a
+      # publish writes, and it is true the moment the publish lands, where the
+      # served site is behind a CDN.
+      - name: Skip if it is already published
+        id: published
+        if: steps.inflight.outputs.busy == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.upstream.outputs.version }}
+          R: ${{ steps.upstream.outputs.release }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/contents/al2023/x86_64/dovecot-$V-$R.x86_64.rpm?ref=gh-pages" \
+               --silent >/dev/null 2>&1; then
+            echo "$V-$R is already in the published repository"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$V-$R is not published yet"
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Start the Build
+        if: steps.inflight.outputs.busy == 'false' && steps.published.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" \
+            -f version='${{ steps.upstream.outputs.version }}' \
+            -f release='${{ steps.upstream.outputs.release }}'
+          echo "dispatched Build for ${{ steps.upstream.outputs.version }}-${{ steps.upstream.outputs.release }}"

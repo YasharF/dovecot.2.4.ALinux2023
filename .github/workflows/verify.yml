@@ -19,6 +19,9 @@ jobs:
   verify:
     # Do not test the artifacts of a build that failed.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Both matrix legs resolve the same Build run; the publish job needs it.
+    outputs:
+      run_id: ${{ steps.build.outputs.run_id }}
     strategy:
       fail-fast: false
       matrix:
@@ -204,3 +207,21 @@ jobs:
       - name: dovecot log
         if: always()
         run: docker logs dovecot
+
+  # `needs` waits for both architectures, so nothing is published unless both
+  # verified. Publish is add-only and skips filenames already there, so a
+  # re-run of Verify against an already-published build is a no-op rather than
+  # something to guard against.
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Publish the build this verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" \
+            -f run_id='${{ needs.verify.outputs.run_id }}'
+          echo "dispatched Publish for build ${{ needs.verify.outputs.run_id }}"

@@ -107,6 +107,7 @@ Not covered: the packaged systemd unit, since verification runs `dovecot -F` dir
 - **R18** — Both architectures' RPMs come from a single CI run and are downloadable from it.
 - **R19** — The RPMs are published as a `dnf` repository carrying both architectures, so a host installs and updates them the way it installs anything else rather than downloading expiring workflow artifacts.
 - **R20** — The repository keeps every build it has ever published. A host that finds a new build worse than the one it replaced can go back to the earlier one by name, rather than waiting on a fix. Nothing published before the repository existed is carried into it: it starts from the first published build.
+- **R21** — A new upstream release reaches the published repository without anyone being asked to do anything: it is noticed, built, verified and published on its own, and a consumer's `dnf upgrade` picks it up from there. Nothing in the path waits on a human. A release that fails to build or fails verification is simply not published, and is retried the next day.
 
 ## 5. Design
 
@@ -143,14 +144,17 @@ Two things the environment supplies that the spec assumes:
 
 ### 5.3 Automation
 
-Three workflows:
+Four workflows, chained so that an upstream release reaches the published repository unattended:
 
-- **Build** — manually triggered with a Dovecot version and upstream SRPM release. Runs `build/build.sh` in the AL2023 container on `ubuntu-24.04` and `ubuntu-24.04-arm`, and uploads each architecture's RPMs as an artifact. On `make check` failure it prints every `test-suite.log`, which is the only place automake names the failing subtest.
+- **Watch** — daily, and manually. Reads the Dovecot project's EL9 `SRPMS` listing for the current release and starts a Build if that version-release is not already in the published repository. It keeps no cursor and no state file: `ce-2.4-latest` carries one release, and the published repository is the record of what has been built, so the check is "is this published" rather than "is this newer than what I saw last time". A re-run therefore cannot publish anything twice, and a missed day costs nothing.
+- **Build** — dispatched by Watch, or manually with a Dovecot version and upstream SRPM release. Runs `build/build.sh` in the AL2023 container on `ubuntu-24.04` and `ubuntu-24.04-arm`, and uploads each architecture's RPMs as an artifact. On `make check` failure it prints every `test-suite.log`, which is the only place automake names the failing subtest.
 - **Verify** — triggered when Build completes, or manually against any past Build's run id. Installs that run's RPMs on a clean AL2023 container, starts Dovecot, points the `dovecot/imaptest` container at it over TLS twice — once for the IMAP stress run, once in profile mode for LMTP — and runs `sieve-test`, `doveadm` and `openssl s_client` against the running install.
 
-- **Publish** — manually triggered against a Build's run id. Adds that run's RPMs to the `gh-pages` branch and regenerates the repository metadata. Manual rather than chained off Verify, because publishing is a decision: a build that passes is not automatically a build worth putting in front of hosts.
+- **Publish** — dispatched by Verify once both architectures pass, or manually against any Build's run id. Adds that run's RPMs to the `gh-pages` branch and regenerates the repository metadata.
 
-They are separate so verification can be re-run without repeating a ~25-minute rebuild.
+Each link is a `workflow_dispatch` carrying the Build run id, which the repository's own `GITHUB_TOKEN` can issue — `workflow_dispatch` and `repository_dispatch` are the two events that create a run even when a token raised them, so the chain needs no personal access token to hold together.
+
+They are separate workflows so verification can be re-run without repeating a ~25-minute rebuild, and so a build can be published, or not, independently of when it was built.
 
 The runners must be a public repository's 4 vCPU ones; see §3 on `test-http-payload`.
 
@@ -192,9 +196,9 @@ Known gap: imaptest can prove a false negative from FTS but not a false positive
 1. **Feasibility** — done.
 2. **Rebuild** — done. Both architectures, `make check` passing, 34 RPMs each.
 3. **Verification** — done. Install, concurrent imaptest over TLS, single-client imaptest SEARCH through Xapian, imaptest LMTP profile mode with Sieve on the delivery path, sieve-test, SNI certificate selection and ManageSieve all passing on both architectures.
-4. **Automation** — done. Build, Verify and Publish workflows.
-5. **Publication** — built, not yet run. The Publish workflow and the `dnf` repository it writes exist; GitHub Pages has to be pointed at the `gh-pages` branch, and no build has been published yet, so the repository is empty.
-6. **Dovecot release tracking** — not started. No scheduled check for new upstream releases, and no written procedure for taking one from rebuild to publication.
+4. **Automation** — done. Watch, Build, Verify and Publish workflows, chained end to end.
+5. **Publication** — done. The `dnf` repository is served by GitHub Pages from `gh-pages` and carries 2.4.4-5 for both architectures, verified by installing from the live URL on an AL2023 host.
+6. **Dovecot release tracking** — done. The Watch workflow checks daily and takes a new release from rebuild to publication on its own.
 
 ## 8. Consumer note
 
