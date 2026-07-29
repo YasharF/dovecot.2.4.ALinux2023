@@ -43,7 +43,10 @@ jobs:
 
       - name: Install the RPMs and start dovecot
         run: |
+          # SYS_PTRACE so the stall diagnostics can take a backtrace of a stuck
+          # process. Not needed to serve mail.
           docker run -d --name dovecot --network host \
+            --cap-add=SYS_PTRACE \
             -v "$PWD:/w" -w /w \
             public.ecr.aws/amazonlinux/amazonlinux:2023 \
             ./verify/run.sh /w/rpms
@@ -141,6 +144,18 @@ jobs:
           docker exec dovecot find /var/vmail -name '*lock*' -printf '%p %s %TT\n' || true
           echo "=== fts index tree ==="
           docker exec dovecot find /var/vmail -path '*fts*' -maxdepth 6 | head -40 || true
+          # The debuginfo packages are already installed, so this resolves to
+          # real frames: it says whether the worker is wedged inside Xapian,
+          # inside glibc, or in Dovecot's own locking.
+          echo "=== backtrace of every stuck dovecot process ==="
+          docker exec dovecot dnf -y -q install gdb >/dev/null 2>&1 || true
+          for name in indexer-worker indexer imap lmtp; do
+            for pid in $(docker exec dovecot pgrep -f "dovecot/$name" || true); do
+              echo "--- $name pid $pid ---"
+              docker exec dovecot timeout 60 gdb -p "$pid" -batch \
+                -ex 'thread apply all bt' 2>&1 | grep -vE '^\[|Reading symbols|^$' | head -40 || true
+            done
+          done
 
       - name: dovecot log
         if: always()
