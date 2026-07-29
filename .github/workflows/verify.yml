@@ -60,6 +60,10 @@ jobs:
           done
           docker logs dovecot
 
+      # search=30 is what makes this exercise Xapian at all: imaptest's SEARCH
+      # state has a default probability of 0, so without it not one SEARCH is
+      # ever sent. With it, imaptest issues BODY and TEXT searches built from
+      # the body words it tracked and checks the results it gets back.
       - name: imaptest over TLS
         run: |
           curl -fsSL -o dovecot-crlf https://dovecot.org/tmp/dovecot-crlf
@@ -69,6 +73,7 @@ jobs:
             user=test@example.com pass=testpass \
             mbox=/mbox \
             clients=4 msgs=50 secs=90 \
+            search=30 \
             error_quit disconnect_quit
 
       # user= is required even though the profile names the user itself:
