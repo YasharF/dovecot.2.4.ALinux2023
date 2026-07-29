@@ -63,10 +63,12 @@ jobs:
           done
           docker logs dovecot
 
-      # search=30 is what makes this exercise Xapian at all: imaptest's SEARCH
-      # state has a default probability of 0, so without it not one SEARCH is
-      # ever sent.
-      - name: imaptest over TLS
+      # Concurrency and FTS writes are deliberately never combined: together
+      # they hit the flatcurve/Maildir lock-order deadlock in §3 of
+      # REQUIREMENTS.md, which wedges the server about half the time. Four
+      # clients here, with SEARCH left at its default probability of 0, so
+      # nothing writes the Xapian index while they run.
+      - name: imaptest over TLS (concurrent)
         run: |
           curl -fsSL -o dovecot-crlf https://dovecot.org/tmp/dovecot-crlf
           docker run --rm --network host -v "$PWD/dovecot-crlf:/mbox:ro" \
@@ -75,7 +77,22 @@ jobs:
             user=test@example.com pass=testpass \
             mbox=/mbox \
             clients=4 msgs=50 secs=90 \
-            search=30 \
+            error_quit disconnect_quit
+
+      # The Xapian half, single-client so there is no second process to invert
+      # the locks against. search=30 is what makes it exercise Xapian at all:
+      # imaptest's SEARCH state has a default probability of 0, so without it
+      # not one SEARCH is ever sent. The searches are BODY and TEXT terms built
+      # from the body words imaptest tracked, checked against what comes back.
+      - name: imaptest SEARCH through Xapian (single client)
+        run: |
+          docker run --rm --network host -v "$PWD/dovecot-crlf:/mbox:ro" \
+            dovecot/imaptest \
+            host=127.0.0.1 port=993 ssl=any-cert \
+            user=test@example.com pass=testpass \
+            mbox=/mbox \
+            clients=1 msgs=50 secs=60 \
+            search=50 \
             error_quit disconnect_quit
 
       # user= is required even though the profile names the user itself:
