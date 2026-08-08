@@ -12,10 +12,18 @@ V=${1:?usage: build.sh <dovecot-version> <upstream-srpm-release>}
 R=${2:?usage: build.sh <dovecot-version> <upstream-srpm-release>}
 BASE=${DOVECOT_REPO_BASE:-https://repo.dovecot.org/ce-2.4-latest/rhel/9/SRPMS}
 DEST=$PWD/out/RPMS
-WORK=$PWD/out/work
+LOGS=$PWD/out/test-logs
+# The rpmbuild tree deliberately does not live under $PWD, which in CI is a bind
+# mount of the runner's workspace. src/lib/test-cpu-limit bakes its scratch
+# directory in at compile time, and its system-CPU subtests end only once 2 and
+# then 3 seconds of *system* CPU have accrued; that test has hung x86_64 builds
+# for hours. Building on the container's own filesystem is meant to make those
+# syscalls accrue system time faster. Not measured.
+#
+# rpmbuild also no longer reads anything under $PWD, so $PWD no longer has to be
+# traversable by the unprivileged builder.
+WORK=${DOVECOT_BUILD_WORK:-/var/tmp/dovecot-build}
 TOP=$WORK/rpmbuild
-# rpmbuild runs as an unprivileged user, so $PWD must be traversable by it.
-# Do not run this from inside a home directory: those are mode 700.
 
 # No curl here: AL2023 ships curl-minimal, and asking for curl conflicts with it.
 dnf -y install rpm-build 'dnf-command(builddep)' spal-release \
@@ -25,6 +33,18 @@ dnf -y install rpm-build 'dnf-command(builddep)' spal-release \
 # file to 000 and expect reading it to fail, which it does not for root.
 id builder >/dev/null 2>&1 || useradd -m builder
 build() { runuser -u builder -- "$@"; }
+
+# The work tree is inside the container, which docker removes on exit, so
+# test-suite.log -- the only place automake names a failing subtest -- has to be
+# copied back to $PWD first. The Build workflow prints these.
+save_test_logs() {
+    [ -d "$TOP/BUILD" ] || return 0
+    rm -rf "$LOGS"
+    mkdir -p "$LOGS"
+    (cd "$TOP/BUILD" && find . -name test-suite.log \
+        -exec cp --parents {} "$LOGS/" \;) || true
+}
+trap save_test_logs EXIT
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
