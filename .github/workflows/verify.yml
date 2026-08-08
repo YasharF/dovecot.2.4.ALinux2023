@@ -16,12 +16,41 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    # Do not test the artifacts of a build that failed.
+  # Build's own resolve job can succeed with its build job skipped (Watch
+  # found nothing new), so this checks for rpms-* artifacts rather than
+  # trusting Build's conclusion alone.
+  resolve:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    # Both matrix legs resolve the same Build run; the publish job needs it.
+    runs-on: ubuntu-24.04
     outputs:
-      run_id: ${{ steps.build.outputs.run_id }}
+      run_id: ${{ steps.resolve.outputs.run_id }}
+      proceed: ${{ steps.resolve.outputs.proceed }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            run_id='${{ inputs.run_id }}'
+          else
+            run_id='${{ github.event.workflow_run.id }}'
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
+                --jq '[.artifacts[].name | select(startswith("rpms-"))] | length')
+          if [ "$n" -gt 0 ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Build run $run_id produced no rpms-* artifacts to verify"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: resolve
+    if: needs.resolve.outputs.proceed == 'true'
+    # Both matrix legs resolve the same Build run; the signal job needs it.
+    outputs:
+      run_id: ${{ needs.resolve.outputs.run_id }}
     strategy:
       fail-fast: false
       matrix:
@@ -34,14 +63,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - id: build
-        run: echo "run_id=${{ github.event.workflow_run.id || inputs.run_id }}" >> "$GITHUB_OUTPUT"
-
       - uses: actions/download-artifact@v8
         with:
           name: rpms-${{ matrix.arch }}
           path: rpms
-          run-id: ${{ steps.build.outputs.run_id }}
+          run-id: ${{ needs.resolve.outputs.run_id }}
           github-token: ${{ github.token }}
 
       - name: Install the RPMs and start dovecot
@@ -208,20 +234,20 @@ jobs:
         if: always()
         run: docker logs dovecot
 
-  # `needs` waits for both architectures, so nothing is published unless both
-  # verified. Publish is add-only and skips filenames already there, so a
-  # re-run of Verify against an already-published build is a no-op rather than
-  # something to guard against.
-  publish:
+  # `needs` waits for both architectures, so nothing is signalled unless both
+  # verified. Publish listens for this workflow's completion instead of being
+  # dispatched, same reason as watch.yml. Publish is add-only and skips
+  # filenames already there, so a re-run against an already-published build
+  # is a no-op rather than something to guard against.
+  signal:
     needs: verify
     runs-on: ubuntu-24.04
-    permissions:
-      actions: write
     steps:
-      - name: Publish the build this verified
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" \
-            -f run_id='${{ needs.verify.outputs.run_id }}'
-          echo "dispatched Publish for build ${{ needs.verify.outputs.run_id }}"
+      - run: |
+          echo "run_id=${{ needs.verify.outputs.run_id }}" >> verified-build.env
+          cat verified-build.env
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-build
+          path: verified-build.env

@@ -11,6 +11,9 @@ name: Publish
 #   gh workflow run Publish -f run_id=<the Build run whose RPMs to publish>
 
 on:
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
@@ -18,15 +21,52 @@ on:
         required: true
 
 permissions:
+  actions: read
   contents: read
 
 # gh-pages is a single mutable store, so two publishes must not interleave.
 concurrency: publish
 
 jobs:
+  # A workflow_run from Verify with no verified-build marker means Watch
+  # found nothing new that day, and Verify's jobs skipped end to end.
+  resolve:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      run_id: ${{ steps.resolve.outputs.run_id }}
+      proceed: ${{ steps.resolve.outputs.proceed }}
+    steps:
+      - if: github.event_name == 'workflow_run'
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: verified-build
+          path: verified-build
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.download.outcome }}" = 'success' ]; then
+            . verified-build/verified-build.env
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Verify did not leave a verified build to publish"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: resolve
+    if: needs.resolve.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@v7
@@ -53,14 +93,14 @@ jobs:
         with:
           name: rpms-x86_64
           path: incoming/x86_64
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ needs.resolve.outputs.run_id }}
           github-token: ${{ github.token }}
 
       - uses: actions/download-artifact@v8
         with:
           name: rpms-aarch64
           path: incoming/aarch64
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ needs.resolve.outputs.run_id }}
           github-token: ${{ github.token }}
 
       # An already-published filename is never replaced. Two builds of the same
@@ -112,6 +152,6 @@ jobs:
           git add -A
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -q -m "Publish RPMs from build ${{ inputs.run_id }}" \
+              commit -q -m "Publish RPMs from build ${{ needs.resolve.outputs.run_id }}" \
             || { echo "nothing new to publish"; exit 0; }
           git push -q origin gh-pages

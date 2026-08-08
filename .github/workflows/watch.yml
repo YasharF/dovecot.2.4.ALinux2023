@@ -1,7 +1,8 @@
 name: Watch
 # Checks the Dovecot project's EL9 source RPMs for a release this repository has
-# not published yet, and starts a Build when it finds one. Build chains into
-# Verify and Verify into Publish, so an upstream release reaches the dnf
+# not published yet, and leaves a marker for Build to pick up when it finds one.
+# Build, Verify, and Publish each listen for the previous workflow's completion
+# rather than being dispatched, so an upstream release reaches the dnf
 # repository, and from there a consumer's `dnf upgrade`, with nobody touching it.
 #
 # `ce-2.4-latest` carries only the current release, so "new" means "not in the
@@ -18,8 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
-  contents: read
+  actions: read
 
 jobs:
   watch:
@@ -88,12 +88,18 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Start the Build
+      # Build listens for this workflow's completion instead of being
+      # dispatched: a run started by GITHUB_TOKEN can't itself trigger another
+      # workflow's on.workflow_run listener.
+      - name: Leave a marker for Build
         if: steps.inflight.outputs.busy == 'false' && steps.published.outputs.new == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" \
-            -f version='${{ steps.upstream.outputs.version }}' \
-            -f release='${{ steps.upstream.outputs.release }}'
-          echo "dispatched Build for ${{ steps.upstream.outputs.version }}-${{ steps.upstream.outputs.release }}"
+          echo "version=${{ steps.upstream.outputs.version }}" >> new-release.env
+          echo "release=${{ steps.upstream.outputs.release }}" >> new-release.env
+          cat new-release.env
+
+      - uses: actions/upload-artifact@v7
+        if: steps.inflight.outputs.busy == 'false' && steps.published.outputs.new == 'true'
+        with:
+          name: new-release
+          path: new-release.env
