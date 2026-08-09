@@ -1,51 +1,54 @@
 # Dovecot 2.4 for Amazon Linux 2023
 
-AL2023 ships Dovecot 2.3.20. The Dovecot project publishes 2.4 RPMs for RHEL 9,
-x86_64 only. This rebuilds their source RPMs on AL2023, for x86_64 and aarch64.
+AL2023 ships Dovecot 2.3.20. The Dovecot project publishes 2.4 RPMs for RHEL 9, x86_64 only. This rebuilds their source RPMs on AL2023, for x86_64 and aarch64.
 
-Temporary — use official AWS or Dovecot packages when they exist.
-
-## Build
-
-```sh
-docker run --rm -v "$PWD:/w" -w /w public.ecr.aws/amazonlinux/amazonlinux:2023 \
-  ./build/build.sh 2.4.4 5
-```
-
-RPMs land in `out/RPMS`. The same script runs directly on an AL2023 host as root.
-
-[`build/build.sh`](build/build.sh) is the whole build. Two things in it are not
-stock:
-
-- **`build/mariadb-devel-stub.spec`** — the spec has `BuildRequires:
-  mariadb-devel`, which AL2023 has no package for. `mariadb-connector-c-devel`
-  ships the same headers, so the stub provides the name and the spec stays
-  unedited.
-- **`--without-libunwind`** — three `sed` lines against the core spec. AL2023
-  only has libunwind 1.4.0, which cannot unwind here, and `libunwind.so` exports
-  a `backtrace` symbol that shadows glibc's working one — so linking it breaks
-  both of Dovecot's backtrace paths and `make check` dies in `test-backtrace`.
-  libunwind is used by `src/lib/backtrace-string.c` and nothing else, for crash
-  backtraces only. Built without it, the full `make check` passes.
-
-The Dovecot sources are not touched, and the sieve spec is unmodified.
+Temporary - use official AWS or Dovecot packages when they exist.
 
 ## Install
 
-These are published as a `dnf` repository, for `x86_64` and `aarch64`. `dovecot-flatcurve` needs Xapian, which is in the Amazon SPAL repository, so enable that too:
+Uninstall AL2023's `dovecot` and `dovecot-pigeonhole` first if you have them installed - this repo's `dovecot-sieve` conflicts with `dovecot-pigeonhole`, and dnf refuses the transaction otherwise. Also note that Dovecot 2.4 won't read a 2.3 config; see the [2.3-to-2.4 upgrade guide](https://doc.dovecot.org/latest/installation/upgrade/2.3-to-2.4.html).
+
+These packages work on both `x86_64` and `aarch64` hosts. `dovecot-flatcurve` needs Xapian, which AL2023 ships only through the Amazon SPAL repository - skip the `spal-release` install below if you don't need `dovecot-flatcurve`:
 
 ```sh
 dnf install spal-release
-curl -fsSLo /etc/yum.repos.d/dovecot-2.4-al2023.repo \
-  https://yasharf.github.io/dovecot.2.4.ALinux2023/dovecot-2.4-al2023.repo
-dnf install dovecot dovecot-imapd dovecot-lmtpd dovecot-sieve \
-  dovecot-managesieved dovecot-flatcurve
+curl -fsSLo /etc/yum.repos.d/dovecot-2.4-al2023.repo https://yasharf.github.io/dovecot.2.4.ALinux2023/dovecot-2.4-al2023.repo
+dnf install dovecot dovecot-imapd dovecot-lmtpd dovecot-sieve dovecot-managesieved dovecot-flatcurve
 ```
 
 The packages are unsigned, so the repository sets `gpgcheck=0`.
 
-A host carrying the distribution's `dovecot` and `dovecot-pigeonhole` removes them first — `dovecot-sieve` conflicts with `dovecot-pigeonhole`, and that transaction is refused otherwise.
+New versions are likely to show up here within a day of an official RHEL release from the Dovecot team with the Github Action workflow in this repo. `dnf upgrade` picks them up when they do.
 
-New upstream releases arrive on their own: a scheduled job notices one, rebuilds it, verifies it and publishes it, so `dnf upgrade` picks it up with nothing to do here. A release that fails to build or verify is not published.
+Every published build stays published. `dnf list --showduplicates dovecot` shows what's available, and you can install a specific version by name, e.g. `dnf install dovecot-2:2.4.4-5`.
 
-Every published build stays published. `dnf list --showduplicates dovecot` shows what is there, and an earlier one can be installed by name — `dnf install dovecot-2:2.4.4-5` — if a newer build turns out to be worse.
+
+## How it works
+
+GitHub Actions handles the whole process, chained end-to-end:
+
+- `watch.yml` checks daily for a new Dovecot RHEL release not yet published here.
+- `build.yml` rebuilds it for AL2023, `x86_64` and `aarch64`.
+- `verify.yml` installs the RPMs in an AL2023 container and runs IMAP/LMTP/Sieve checks against them.
+- `publish.yml` publishes the RPMs as the `dnf` repository above.
+
+### Build
+
+[`build/build.sh`](build/build.sh) is the whole build, and runs in a docker container:
+
+```sh
+docker run --rm -v "$PWD:/w" -w /w public.ecr.aws/amazonlinux/amazonlinux:2023 ./build/build.sh 2.4.4 5
+```
+
+RPMs land in `out/RPMS`.
+
+### Verify
+
+[`verify/run.sh`](verify/run.sh) installs the built RPMs on a clean AL2023 host and starts Dovecot for `verify.yml` to test.
+
+### Changes to RHEL Spec
+
+The Dovecot sources are not touched, and the sieve spec is unmodified. Two things needed changing for AL2023:
+
+- **`build/mariadb-devel-stub.spec`** - the spec has `BuildRequires: mariadb-devel`, which AL2023 has no package for. `mariadb-connector-c-devel` ships the same headers, so the stub provides the name and the spec stays unedited.
+- **`--without-libunwind`** - three `sed` lines against the core spec. AL2023 only has libunwind 1.4.0, which cannot unwind here, and `libunwind.so` exports a `backtrace` symbol that shadows glibc's working one, so linking it breaks both of Dovecot's backtrace paths and `make check` dies in `test-backtrace`. libunwind is used by `src/lib/backtrace-string.c` and nothing else, for crash backtraces only. Built without it, the full `make check` passes.

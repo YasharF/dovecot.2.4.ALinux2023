@@ -93,10 +93,9 @@ jobs:
           docker logs dovecot
 
       # Concurrency and FTS writes are deliberately never combined: together
-      # they hit the flatcurve/Maildir lock-order deadlock in §3 of
-      # REQUIREMENTS.md, which wedges the server about half the time. Four
-      # clients here, with SEARCH left at its default probability of 0, so
-      # nothing writes the Xapian index while they run.
+      # they deadlock flatcurve against Maildir's locking about half the time.
+      # Four clients here, with SEARCH left at its default probability of 0,
+      # so nothing writes the Xapian index while they run.
       - name: imaptest over TLS (concurrent)
         run: |
           curl -fsSL -o dovecot-crlf https://dovecot.org/tmp/dovecot-crlf
@@ -109,7 +108,7 @@ jobs:
             error_quit disconnect_quit
 
       # The Xapian half, single-client so there is no second process to invert
-      # the locks against. search=30 is what makes it exercise Xapian at all:
+      # the locks against. search=50 is what makes it exercise Xapian at all:
       # imaptest's SEARCH state has a default probability of 0, so without it
       # not one SEARCH is ever sent. The searches are BODY and TEXT terms built
       # from the body words imaptest tracked, checked against what comes back.
@@ -235,10 +234,9 @@ jobs:
         run: docker logs dovecot
 
   # `needs` waits for both architectures, so nothing is signalled unless both
-  # verified. Publish listens for this workflow's completion instead of being
-  # dispatched, same reason as watch.yml. Publish is add-only and skips
-  # filenames already there, so a re-run against an already-published build
-  # is a no-op rather than something to guard against.
+  # verified. Publish is add-only and skips filenames already there, so a
+  # re-run against an already-published build is a no-op rather than
+  # something to guard against.
   signal:
     needs: verify
     runs-on: ubuntu-24.04

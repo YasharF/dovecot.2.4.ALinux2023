@@ -13,15 +13,10 @@ R=${2:?usage: build.sh <dovecot-version> <upstream-srpm-release>}
 BASE=${DOVECOT_REPO_BASE:-https://repo.dovecot.org/ce-2.4-latest/rhel/9/SRPMS}
 DEST=$PWD/out/RPMS
 LOGS=$PWD/out/test-logs
-# The rpmbuild tree deliberately does not live under $PWD, which in CI is a bind
-# mount of the runner's workspace. src/lib/test-cpu-limit bakes its scratch
-# directory in at compile time, and its system-CPU subtests end only once 2 and
-# then 3 seconds of *system* CPU have accrued; that test has hung x86_64 builds
-# for hours. Building on the container's own filesystem is meant to make those
-# syscalls accrue system time faster. Not measured.
-#
-# rpmbuild also no longer reads anything under $PWD, so $PWD no longer has to be
-# traversable by the unprivileged builder.
+# Not $PWD: in CI that's a bind mount of the runner's workspace, and
+# src/lib/test-cpu-limit's system-CPU-time subtests have hung for hours over
+# one. Building on the container's own filesystem instead. $PWD no longer
+# needs to be traversable by the unprivileged builder either.
 WORK=${DOVECOT_BUILD_WORK:-/var/tmp/dovecot-build}
 TOP=$WORK/rpmbuild
 

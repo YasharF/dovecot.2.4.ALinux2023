@@ -3,8 +3,8 @@ name: Publish
 # branch, and regenerates the metadata over everything the repository holds.
 #
 # Nothing is ever removed. Every build that has been published stays
-# published, so a host can go back to an earlier one — `dnf install
-# dovecot-2:2.4.4-5` — while waiting on a fix, instead of being stuck on
+# published, so a host can go back to an earlier one (`dnf install
+# dovecot-2:2.4.4-5`) while waiting on a fix, instead of being stuck on
 # whatever is newest.
 #
 # Publish a build:
@@ -104,8 +104,8 @@ jobs:
           github-token: ${{ github.token }}
 
       # An already-published filename is never replaced. Two builds of the same
-      # upstream release carry the same EVR and therefore the same filename
-      # (§5.5); the copy that is already public is the one that stays, because
+      # upstream release carry the same EVR and therefore the same filename;
+      # the copy that is already public is the one that stays, because
       # replacing it would change an artifact under hosts that already have it.
       - name: Add the new RPMs
         id: add
@@ -124,18 +124,19 @@ jobs:
             done
           done
           cp src/dovecot-2.4-al2023.repo site/
-          # Pages runs Jekyll over a branch-served site otherwise, which has no
-          # business touching a package tree.
+          # Otherwise Pages runs Jekyll over the branch, which has no business
+          # touching a package tree.
           touch site/.nojekyll
           echo "added $new package(s)"
           echo "new=$new" >> "$GITHUB_OUTPUT"
 
       # createrepo_c out of AL2023 itself, the distribution these packages
-      # install on. --update reuses the metadata of packages that were already
-      # there, so a publish costs only the packages it adds.
-      # Only when packages were actually added. createrepo_c stamps its output,
-      # so running it regardless would rewrite every metadata file on every run
-      # and commit that churn even when the repository's contents are identical.
+      # install on. --update reuses the metadata of packages already there, so
+      # a publish costs only the packages it adds.
+      #
+      # Runs only when packages were actually added: createrepo_c stamps its
+      # output, so running it regardless would rewrite every metadata file on
+      # every run and commit that churn even when nothing changed.
       - name: Rebuild the repository metadata
         if: steps.add.outputs.new != '0'
         run: |

@@ -69,8 +69,8 @@ jobs:
           echo "release=$r" >> "$GITHUB_OUTPUT"
 
       # The gh-pages branch rather than the Pages URL: the branch is what a
-      # publish writes, and it is true the moment the publish lands, where the
-      # served site is behind a CDN.
+      # publish writes and is true the moment it lands, where the served site
+      # sits behind a CDN and can lag.
       - name: Skip if it is already published
         id: published
         if: steps.inflight.outputs.busy == 'false'
