@@ -52,3 +52,7 @@ The Dovecot sources are not touched, and the sieve spec is unmodified. Two thing
 
 - **`build/mariadb-devel-stub.spec`** - the spec has `BuildRequires: mariadb-devel`, which AL2023 has no package for. `mariadb-connector-c-devel` ships the same headers, so the stub provides the name and the spec stays unedited.
 - **`--without-libunwind`** - three `sed` lines against the core spec. AL2023 only has libunwind 1.4.0, which cannot unwind here, and `libunwind.so` exports a `backtrace` symbol that shadows glibc's working one, so linking it breaks both of Dovecot's backtrace paths and `make check` dies in `test-backtrace`. libunwind is used by `src/lib/backtrace-string.c` and nothing else, for crash backtraces only. Built without it, the full `make check` passes.
+
+## License
+
+[LICENSE](LICENSE) covers this repository's own content - the build scripts, spec stub, verify harness, and workflows - under the MIT license, the same one Dovecot itself uses for part of its tree. It does not cover Dovecot: no Dovecot source is vendored here, and the RPMs this repo builds and publishes are Dovecot's own unmodified software (aside from the libunwind change above), carrying Dovecot's own `COPYING`, `COPYING.MIT`, and `COPYING.LGPL` inside each package as built by their spec.
