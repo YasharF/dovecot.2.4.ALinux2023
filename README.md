@@ -1,8 +1,8 @@
-# Dovecot 2.4 for Amazon Linux 2023
+# Dovecot 2.4 for Amazon Linux 2023 (AL2023)
 
-AL2023 ships Dovecot 2.3.20. The Dovecot project publishes 2.4 RPMs for RHEL 9, x86_64 only. This rebuilds their source RPMs on AL2023, for x86_64 and aarch64.
+AL2023 ships Dovecot 2.3.20. The Dovecot project doesn't publish RPMs for AL2023, but publishes 2.4 RPMs for RHEL 9 (x86_64 only). This rebuilds their source RPMs on AL2023, for both x86_64 and aarch64. That means you can get the latest Dovecot release with its features and bug fixes and install it on any of the EC2 instances including the lower cost ARM-based Graviton hosts.
 
-Temporary - use official AWS or Dovecot packages when they exist.
+This is a stop gap project; use official AWS or [Dovecot repo](https://repo.dovecot.org) packages when they become available.
 
 ## Install
 
