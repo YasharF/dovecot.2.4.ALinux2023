@@ -35,14 +35,14 @@ install -d -o vmail -g vmail -m 0700 /var/vmail
 # send SNI=imap-sni.example.com. EC rather than RSA so the ECDHE-ECDSA suites
 # in dovecot.conf's cipher list are usable at TLS 1.2, not just TLS 1.3.
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-    -nodes -days 1 -subj /CN=localhost \
-    -keyout /etc/dovecot/test.key -out /etc/dovecot/test.crt
+	-nodes -days 1 -subj /CN=localhost \
+	-keyout /etc/dovecot/test.key -out /etc/dovecot/test.crt
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-    -nodes -days 1 -subj /CN=imap-sni.example.com \
-    -keyout /etc/dovecot/test-sni.key -out /etc/dovecot/test-sni.crt
+	-nodes -days 1 -subj /CN=imap-sni.example.com \
+	-keyout /etc/dovecot/test-sni.key -out /etc/dovecot/test-sni.crt
 
 printf 'test@example.com:%s::::::\n' "$(doveadm pw -s SHA512-CRYPT -p testpass)" \
-    > /etc/dovecot/test-users
+	>/etc/dovecot/test-users
 chmod 0640 /etc/dovecot/test-users
 chgrp dovecot /etc/dovecot/test-users
 
@@ -54,7 +54,7 @@ install -m 0644 "$HERE/lmtp-before.sieve" /etc/dovecot/sieve/lmtp-before.sieve
 # The packaged conf.d enables protocols this config sets up itself.
 mv /etc/dovecot/conf.d /etc/dovecot/conf.d.packaged
 sed "s/@VERSION@/$(rpm -q --qf '%{version}' dovecot)/" \
-    "$HERE/dovecot.conf" > /etc/dovecot/dovecot.conf
+	"$HERE/dovecot.conf" >/etc/dovecot/dovecot.conf
 
 # After the config is in place: sievec reads it.
 sievec /etc/dovecot/sieve/lmtp-before.sieve

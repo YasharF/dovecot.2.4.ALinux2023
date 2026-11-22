@@ -22,6 +22,29 @@ New versions are likely to show up here within a day of an official RHEL release
 
 Every published build stays published. `dnf list --showduplicates dovecot` shows what's available, and you can install a specific version by name, e.g. `dnf install dovecot-2:2.4.4-5`.
 
+## SELinux on AL2023
+
+Every Dovecot 2.4 process maps its configuration file into memory. AL2023 ships Dovecot 2.3, and AL2023's SELinux policy has no rule that allows this. In permissive mode, which is AL2023's default, Dovecot works and SELinux logs a denial each time a Dovecot process starts. In enforcing mode, Dovecot will not start.
+
+Fedora fixed this in its SELinux policy in August 2025, in [Fedora bug 2370124](https://bugzilla.redhat.com/show_bug.cgi?id=2370124), by adding three rules. AL2023 will most likely not get this fix, because AL2023 ships Dovecot 2.3 and Amazon Linux development has moved on to AL2027.
+
+To add Fedora's three rules, create a file named `dovecot_al2023.cil` containing:
+
+```
+(allow dovecot_t      dovecot_var_run_t (file (map)))
+(allow dovecot_auth_t dovecot_var_run_t (file (map)))
+(allow dovecot_t      dovecot_tmp_t     (file (map)))
+```
+
+Then install it as a local SELinux module:
+
+```sh
+sudo semodule -i dovecot_al2023.cil
+```
+
+Once installed, this local SELinux module will stay installed across reboots. To remove the module, run `sudo semodule -r dovecot_al2023`.
+
+You will not need this module on Amazon Linux 2027, because AL2027 is based on Fedora 44 and 45, whose SELinux policy already has these rules.
 
 ## How it works
 

@@ -22,7 +22,7 @@ TOP=$WORK/rpmbuild
 
 # No curl here: AL2023 ships curl-minimal, and asking for curl conflicts with it.
 dnf -y install rpm-build 'dnf-command(builddep)' spal-release \
-    findutils tar gzip gcc gcc-c++ make patch util-linux
+	findutils tar gzip gcc gcc-c++ make patch util-linux
 
 # dnf needs root, rpmbuild must not have it: make check has tests that chmod a
 # file to 000 and expect reading it to fail, which it does not for root.
@@ -33,11 +33,11 @@ build() { runuser -u builder -- "$@"; }
 # test-suite.log -- the only place automake names a failing subtest -- has to be
 # copied back to $PWD first. The Build workflow prints these.
 save_test_logs() {
-    [ -d "$TOP/BUILD" ] || return 0
-    rm -rf "$LOGS"
-    mkdir -p "$LOGS"
-    (cd "$TOP/BUILD" && find . -name test-suite.log \
-        -exec cp --parents {} "$LOGS/" \;) || true
+	[ -d "$TOP/BUILD" ] || return 0
+	rm -rf "$LOGS"
+	mkdir -p "$LOGS"
+	(cd "$TOP/BUILD" && find . -name test-suite.log \
+		-exec cp --parents {} "$LOGS/" \;) || true
 }
 trap save_test_logs EXIT
 
@@ -51,7 +51,7 @@ install -o builder "$HERE/mariadb-devel-stub.spec" "$WORK/"
 build rpmbuild -bb --define "_topdir $TOP" "$WORK/mariadb-devel-stub.spec"
 dnf -y install "$TOP"/RPMS/noarch/al2023-mariadb-devel-compat-*.rpm
 
-curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o "$WORK/dovecot-$V-$R.src.rpm"       "$BASE/dovecot-$V-$R.src.rpm"
+curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o "$WORK/dovecot-$V-$R.src.rpm" "$BASE/dovecot-$V-$R.src.rpm"
 curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o "$WORK/dovecot-sieve-$V-$R.src.rpm" "$BASE/dovecot-sieve-$V-$R.src.rpm"
 chown builder "$WORK"/*.src.rpm
 
@@ -62,8 +62,8 @@ chown builder "$WORK"/*.src.rpm
 # else, for crash backtraces only. Without it, make check passes.
 build rpm -i --define "_topdir $TOP" "$WORK/dovecot-$V-$R.src.rpm"
 sed -i -e 's/--with-libunwind /--without-libunwind /' \
-       -e '/^BuildRequires: libunwind-devel$/d' \
-       -e '/^Requires: libunwind$/d' "$TOP/SPECS/dovecot.spec"
+	-e '/^BuildRequires: libunwind-devel$/d' \
+	-e '/^Requires: libunwind$/d' "$TOP/SPECS/dovecot.spec"
 grep -q -- '--without-libunwind' "$TOP/SPECS/dovecot.spec"
 
 dnf -y builddep "$TOP/SPECS/dovecot.spec"
@@ -73,12 +73,12 @@ build rpmbuild -ba --define "_topdir $TOP" "$TOP/SPECS/dovecot.spec"
 # Install the whole core set, not just dovecot and dovecot-devel: those two need
 # libraries that live in the lua and gssapi subpackages.
 mapfile -t core < <(find "$TOP/RPMS" -name '*.rpm' \
-    ! -name '*-debuginfo-*' ! -name '*-debugsource-*' ! -name 'al2023-mariadb-devel-compat-*')
+	! -name '*-debuginfo-*' ! -name '*-debugsource-*' ! -name 'al2023-mariadb-devel-compat-*')
 dnf -y install "${core[@]}"
 dnf -y builddep "$WORK/dovecot-sieve-$V-$R.src.rpm"
 build rpmbuild --rebuild --define "_topdir $TOP" "$WORK/dovecot-sieve-$V-$R.src.rpm"
 
 mkdir -p "$DEST"
 find "$TOP/RPMS" -name '*.rpm' ! -name 'al2023-mariadb-devel-compat-*' \
-    -exec mv -t "$DEST" {} +
+	-exec mv -t "$DEST" {} +
 ls -1 "$DEST"
